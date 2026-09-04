@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.4
+// @version      3.1.3-fix.5
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/
@@ -217,20 +217,60 @@ class General {
      * @param {string|number} key 课程 url（或其播放页地址）或列表下标
      */
     static removeCourse(key) {
-        let courses = this.courses();
-
         if (typeof key === "number" && Number.isInteger(key)) {
+            let courses = this.courses();
             courses.splice(key, 1);
-        } else {
-            const target = this.#videoUrlSignature(String(key));
-            for (let i = courses.length - 1; i >= 0; i--) {
-                if (this.#videoUrlSignature(courses[i].url) !== target) {
-                    continue;
-                }
-                courses.splice(i, 1);
-            }
+            this.courses(courses);
+            return;
         }
 
+        const url = String(key);
+        const sectionId = this.#queryParam(url, "sectionId");
+        if (sectionId !== "") {
+            this.#removeBySectionId(sectionId);
+            return;
+        }
+
+        // 播放页地址缺 sectionId 参数时退回全参数签名匹配
+        const target = this.#videoUrlSignature(url);
+        let courses = this.courses();
+        for (let i = courses.length - 1; i >= 0; i--) {
+            if (this.#videoUrlSignature(courses[i].url) !== target) {
+                continue;
+            }
+            courses.splice(i, 1);
+        }
+        this.courses(courses);
+    }
+
+    /**
+     * 按小节 Id 从课程列表移除课程
+     * @param {string|number} sectionId 小节 Id
+     */
+    static removeCourseBySectionId(sectionId) {
+        const id = String(sectionId);
+        if (id !== "") {
+            this.#removeBySectionId(id);
+        }
+    }
+
+    /**
+     * 按小节 Id 执行移除
+     * @param {string} sectionId 小节 Id
+     */
+    static #removeBySectionId(sectionId) {
+        let courses = this.courses();
+        for (let i = courses.length - 1; i >= 0; i--) {
+            const course = courses[i];
+            if (!course || !course.url) {
+                continue;
+            }
+            const courseSectionId = this.#queryParam(course.url, "sectionId");
+            if (courseSectionId === "" || courseSectionId !== sectionId) {
+                continue;
+            }
+            courses.splice(i, 1);
+        }
         this.courses(courses);
     }
 
@@ -241,11 +281,19 @@ class General {
      */
     static #videoUrlSignature(url) {
         return ["platformId", "trainplanId", "courseId", "sectionId"]
-            .map(name => {
-                const match = url.match(new RegExp("[?&]" + name + "=([^&]*)"));
-                return match ? decodeURIComponent(match[1]) : "";
-            })
+            .map(name => this.#queryParam(url, name))
             .join("|");
+    }
+
+    /**
+     * 从地址中提取指定查询参数值
+     * @param {string} url
+     * @param {string} name
+     * @returns {string} 参数值，不存在时为空字符串
+     */
+    static #queryParam(url, name) {
+        const match = url.match(new RegExp("[?&]" + name + "=([^&]*)"));
+        return match ? decodeURIComponent(match[1]) : "";
     }
 
     /**
@@ -586,7 +634,13 @@ class PlayPage {
 
         // 播放结束
         player.addListener('ended', function () {
-            General.removeCourse(window.location.href);
+            // 优先用播放器自身的 sectionId 匹配（与提交学习记录同源），URL 匹配兜底
+            const sectionId = typeof attrset !== "undefined" && attrset ? attrset.sectionId : undefined;
+            if (sectionId !== undefined && sectionId !== null && String(sectionId) !== "") {
+                General.removeCourseBySectionId(sectionId);
+            } else {
+                General.removeCourse(window.location.href);
+            }
             let courses = General.courses();
             if (courses.length === 0) {
                 General.notification("所有视频已经播放完毕");
