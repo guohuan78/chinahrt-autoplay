@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.5
+// @version      3.1.3-fix.6
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/
@@ -644,9 +644,45 @@ class PlayPage {
             let courses = General.courses();
             if (courses.length === 0) {
                 General.notification("所有视频已经播放完毕");
-            } else {
-                General.notification("即将播放下一个视频:" + courses[0].title);
+                return;
+            }
+            General.notification("即将播放下一个视频:" + courses[0].title);
+
+            const navigate = function () {
                 window.top.location.href = courses[0].url;
+            };
+
+            // 平台在下一节会校验上一节的完成状态：先提交学习记录再跳转
+            if (typeof $ !== "undefined" && typeof attrset !== "undefined" && attrset) {
+                try {
+                    if (typeof courseyunRecord === "function") {
+                        courseyunRecord();
+                    }
+                    if (player.videoClear) {
+                        player.videoClear();
+                    }
+                } catch (e) {
+                    console.log("播放结束清理异常", e);
+                }
+                $.ajax({
+                    url: '/videoPlay/takeRecord',
+                    data: {
+                        studyCode: attrset.studyCode,
+                        recordUrl: attrset.recordUrl,
+                        updateRedisMap: attrset.updateRedisMap,
+                        recordId: attrset.recordId,
+                        sectionId: attrset.sectionId,
+                        signId: attrset.signId,
+                        isEnd: true,
+                        businessId: attrset.businessId,
+                    },
+                    dataType: 'json',
+                    type: 'post',
+                    // complete 在成功和失败时都会触发，保证即使记录提交失败也能继续播放下一个
+                    complete: navigate,
+                });
+            } else {
+                navigate();
             }
         });
 
