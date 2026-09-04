@@ -1,4 +1,7 @@
 # Chinahrt AutoPlay(Chinahrt自动刷课)
+
+**Fork & 修复自 [yikuaibaiban/chinahrt-autoplay](https://github.com/yikuaibaiban/chinahrt-autoplay)** | 原作博客：[博客园](https://www.cnblogs.com/ykbb/)
+
 好用的Chinahrt刷课脚本
 
 # 简介
@@ -66,8 +69,24 @@
 - 所在的地区功能无法正常使用
 
     由于没有所有地区的账号无法全都进行匹配，如果愿意的话可以将你的账号密码通过私信的方式发我进行适配。
+    - 原作反馈：[https://github.com/yikuaibaiban/chinahrt-autoplay/issues](https://github.com/yikuaibaiban/chinahrt-autoplay/issues)
+    - 本 fork 反馈：[https://github.com/guohuan78/chinahrt-autoplay/issues](https://github.com/guohuan78/chinahrt-autoplay/issues)
 
+# 修复说明
+
+基于 [yikuaibaiban/chinahrt-autoplay](https://github.com/yikuaibaiban/chinahrt-autoplay) 的 `3.1.3-Preview` 版本修复。
+
+## 问题
+
+自动跳转下一个视频可以，但不能自动点击播放。
+
+## 根因
+
+重构后的 `PlayPage.playerInit()` 只调用一次（+ `loadedmetadata` 事件），如果平台播放器在那个时刻还没完全就绪，`player.videoPlay()` 会静默失败，之后再也没有重试机会。
+
+## 修复
+
+1. `playerInit()` 顶部加了 guard：视频已在播放或已结束时跳过
+2. `PlayPage.init()` 中加了 `setInterval(PlayPage.playerInit, 1000)` 周期性重试
 
 # 免责申明
-
-**本软件是免费软件，不收一分钱，只是分享给朋友们使用，不负责售后服务。使用时部分功能请谨慎使用，软件造成任何数据丢失，本人概不负责。**
