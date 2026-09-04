@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.1
+// @version      3.1.3-fix.2
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/
 // @icon         data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAArFJREFUWEftlttPE0EUxr+9ddtdYOXSSmmlFFoasSFemmg0qYkIMfGF/9J/wTeN0cSYGBHEBBIoLSIU0VrKpe1eagaySWVmutu+GJPO4+5cfvOdc745wkGl3sI/HEIf4L9ToHrqoHLi4LTRgmm1IAhAMCDgmi4ibEgQhe4SyncOFA9tFMoWaucO9wRJFDAZlpCeUKAq/kA8AY7PHKwWmqic+i8WRRaQTciIj8qeFB0Bjo4dvN9ooOX/7L8OnLshYybaWQouALn5m/XeD3dJ5qcCSEQkrhJcgLfrdabshV8mvtdsPEoEPeV1JzzOqhjSROZ8JsBO2cJa0WQueLFSQ6lqYWpYQT4ZQnSQfzt3g+iwhFw64B/g9VqDm+0uANlNkYB8UkMupnqqkc+qMBgqUAqQOiex5412AHdOJhzAUlqDpvBNIBOXMTtBJyQF0El+ciALgHwfUEUspjTMjrGzPmKIuJ+hlaIA1ksmtg+srhRon7wwE0IuTieoHhTwZJ7+TgGsbDexe2T3DJAdV/E8o1HriTMu3QlR3ymAz4UmSj96A1AkActzOqZH6DD4BtjYM7G5130IYkMynmV0jHHqfXRQxMObPnKg/NvGh81mVyG4HQ1gcVYH22out5oel3Fr0kcVOC3g5cdz2JxH72oVPE1ruDfh7QMPMirCBo3IdMIvRfPi6WUNF2BMl0Aynjii1yAGRIyINZgADRN4tVa/aDiujnfFOg5PbCykNAyp/roPYsPEjn0DkInfflr4tMV+D7xu3P4/eV1GNsFXqWM/sLVv4usuvyK8QGIjEu6m2I+Qu9azIyKt2OoOvyp4EF439w1AJpLmhHjDfoVvUO6GJOHSMZkb86vAngq0L6ieOSA+UalddsWWfZmkA0ERhi4iYkjMUusUqq4AvGLey/8+QF+BP0npcPDdfTv7AAAAAElFTkSuQmCC
 // @match        http://*.chinahrt.com/*
 // @match        https://*.chinahrt.com/*
+// @match        http://*.chinahrt.com.cn/*
+// @match        https://*.chinahrt.com.cn/*
+// @match        https://*.heb12333.cn/*
 // @match        http://videoadmin.chinahrt.com.cn/videoPlay/play*
 // @match        http://videoadmin.chinahrt.com/videoPlay/play*
 // @match        https://videoadmin.chinahrt.com.cn/videoPlay/play*
@@ -18,9 +21,8 @@
 // @grant        GM_addValueChangeListener
 // @grant        GM_notification
 // @grant        GM_addStyle
-// @grant        GM_getResourceText
 //
-// @license      GPL
+// @license      Apache-2.0
 // ==/UserScript==
 
 class VueHandler {
@@ -1053,8 +1055,7 @@ window.onload = function () {
 
         if (pageCategory === General.pageCategory.play || General.pageCategory.detail === pageCategory) {
             // 添加Css样式
-            GM_addStyle(GM_getResourceText("customCss"))
-            // GM_addStyle(".canPlaylist{width:300px;height:500px;position:fixed;top:100px;background:#fff;right:20px;border:1px solid #c1c1c1}.canPlaylist .item{padding:8px;line-height:150%;border-bottom:1px solid #c1c1c1;margin-bottom:3px}.canPlaylist .item .title{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c1c1c1}.canPlaylist .item .addBtn{color:#fff;background-color:#4bccf2;border:0;padding:5px 10px;margin-top:4px}.canPlaylist .item .addBtn.disable{color:#000;background-color:#c3c3c3}.configBox{right:0;top:0;height:280px}.configBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.configBox .item{border-bottom:1px dotted #ccc;padding-bottom:5px}.configBox .item .remark{font-size:13px;font-weight:700}.configBox,.experimentalBox,.playlistBox{position:fixed;width:250px;background-color:#fff;z-index:9999;border:1px solid #ccc}.playlistBox{right:0;top:290px;height:450px;overflow-y:auto}.playlistBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.playlistBox .child_title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.playlistBox .child_remove{color:#fff;background-color:#fd1952;border:0;padding:5px 10px;margin:4px 0 10px}.experimentalBox{right:255px;top:0;height:280px}.experimentalBox .tip{border-bottom:1px solid #ccc;padding:5px;font-weight:700;color:red}.feedbackBox,.notice{font-size:14px;font-weight:700;color:red;background:#fff;position:absolute;line-height:30px;z-index:99999;left:30px}.feedbackBox{padding:4px 7px;top:0;display:flex;flex-direction:column;text-align:center}.feedbackBox .title{font-size:16px;border-bottom:1px solid red}.feedbackBox .link{font-size:18px;padding:8px 0 8px 10px;color:#4bccf2}.notice{bottom:10px}");
+            GM_addStyle(".canPlaylist{width:300px;height:500px;position:fixed;top:100px;background:#fff;right:20px;border:1px solid #c1c1c1}.canPlaylist .item{padding:8px;line-height:150%;border-bottom:1px solid #c1c1c1;margin-bottom:3px}.canPlaylist .item .title{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c1c1c1}.canPlaylist .item .addBtn{color:#fff;background-color:#4bccf2;border:0;padding:5px 10px;margin-top:4px}.canPlaylist .item .addBtn.disable{color:#000;background-color:#c3c3c3}.configBox{right:0;top:0;height:280px}.configBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.configBox .item{border-bottom:1px dotted #ccc;padding-bottom:5px}.configBox .item .remark{font-size:13px;font-weight:700}.configBox,.experimentalBox,.playlistBox{position:fixed;width:250px;background-color:#fff;z-index:9999;border:1px solid #ccc}.playlistBox{right:0;top:290px;height:450px;overflow-y:auto}.playlistBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.playlistBox .child_title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.playlistBox .child_remove{color:#fff;background-color:#fd1952;border:0;padding:5px 10px;margin:4px 0 10px}.experimentalBox{right:255px;top:0;height:280px}.experimentalBox .tip{border-bottom:1px solid #ccc;padding:5px;font-weight:700;color:red}.feedbackBox,.notice{font-size:14px;font-weight:700;color:red;background:#fff;position:absolute;line-height:30px;z-index:99999;left:30px}.feedbackBox{padding:4px 7px;top:0;display:flex;flex-direction:column;text-align:center}.feedbackBox .title{font-size:16px;border-bottom:1px solid red}.feedbackBox .link{font-size:18px;padding:8px 0 8px 10px;color:#4bccf2}.notice{bottom:10px}.canPlaylist .oneClick{margin:0 auto;width:100%;border:none;padding:6px 0;background:linear-gradient(180deg,#4BCE31,#4bccf2);height:50px;border-radius:5px;color:#fff;font-weight:700;letter-spacing:4px;font-size:18px;cursor:pointer}.playlistBox .oneClear{width:100%;border:none;padding:6px 0;background:linear-gradient(180deg,#4BCE31,#4bccf2);height:50px;border-radius:5px;color:#fff;font-weight:700;letter-spacing:4px;font-size:18px;cursor:pointer;margin-bottom:5px}");
 
             if (pageCategory === General.pageCategory.play) {
                 let playTimer = setInterval(function () {

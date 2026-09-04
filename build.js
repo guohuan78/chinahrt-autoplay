@@ -1,41 +1,18 @@
 const fs = require("fs");
-const path = require("path");
 const uglifyjs = require("uglify-js");
 
-let css = "";
-let js = "";
+// 根目录 chinahrt-autoplay.js 是唯一事实源（src/ 为旧版函数式代码，仅作参考保留）
+const source = fs.readFileSync("./chinahrt-autoplay.js", "utf8");
 
-function handleFolder(folderPath, excludingFileName) {
-  // 读取文件夹中的所有文件和子文件夹
-  fs.readdirSync(folderPath).forEach((item) => {
-    const itemPath = path.join(folderPath, item);
-    if (fs.statSync(itemPath).isDirectory()) {
-      handleFolder(itemPath, excludingFileName);
-    } else {
-      if (item !== excludingFileName) {
-        const fileContent = fs.readFileSync(itemPath, "utf8");
-        if (item.includes(".css")) css += fileContent + "\r\n";
-        if (item.includes(".js")) js += fileContent + "\r\n";
-      }
-    }
-  });
-}
+if (!fs.existsSync("./dist")) fs.mkdirSync("./dist");
 
-function build() {
-  handleFolder("./src", "main.js");
-  css = css.replace(/\r\n/g, "");
-  let template = fs.readFileSync("./src/main.js", "utf8");
-  template = template.replace("/*编译器标记 勿删*/", css).replace("// 编译器标记 勿删", js);
+// 未压缩版：调试用，也是 GreasyFork 发布用（平台规则禁止压缩/混淆代码）
+fs.writeFileSync("./dist/chinahrt-autoplay.js", source);
 
-  if (!fs.existsSync("./dist")) fs.mkdirSync("./dist");
-  fs.writeFileSync("./dist/chinahrt-autoplay.js", template);
+// 压缩版：供 raw 链接安装
+const header = source.split("// ==/UserScript==")[0] + "// ==/UserScript==\r\n";
+const result = uglifyjs.minify(source);
+if (result.error) throw result.error;
+fs.writeFileSync("./dist/chinahrt-autoplay.user.js", header + result.code);
 
-  let header = "";
-  header = fs.readFileSync("./src/main.js", "utf8").split("// ==/UserScript==")[0];
-  header += "// ==/UserScript==\r\n";
-
-  const result = uglifyjs.minify(template);
-  fs.writeFileSync("./dist/chinahrt-autoplay.user.js", header + result.code);
-}
-
-build();
+console.log("build ok");
