@@ -494,7 +494,10 @@ class PlayPage {
      * 播放器初始化
      */
     static playerInit() {
-        // 总是显示播放进度
+        if (player.V.ended || (!player.V.ended && !player.V.paused)) {
+            return;
+        }
+
         player.changeControlBarShow(true);
 
         // 拖动开关
@@ -560,6 +563,9 @@ class PlayPage {
 
         PlayPage.playerInit();
         player.addListener('loadedmetadata', PlayPage.playerInit);
+
+        // 周期性重新检查播放状态，确保视频能自动播放
+        setInterval(PlayPage.playerInit, 1000);
 
         // 播放结束
         player.addListener('ended', function () {
