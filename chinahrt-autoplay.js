@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.2
+// @version      3.1.3-fix.3
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/
@@ -214,35 +214,38 @@ class General {
 
     /**
      * 从课程列表移除课程
-     * @param index 待移除序号
+     * @param {string|number} key 课程 url（或其播放页地址）或列表下标
      */
-    static removeCourse(index) {
+    static removeCourse(key) {
         let courses = this.courses();
 
-        if (Number.isNaN(index)) {
-            for (let i = courses.length; i >= 0; i--) {
-                const element = courses[i];
-                // 正则提取 href 中  sectionId courseId trainplanId
-                let jsonHref = element.url;
-                let jsonSectionId = jsonHref.match(/sectionId=([^&]*)/)[1];
-                let jsonCourseId = jsonHref.match(/courseId=([^&]*)/)[1];
-                let jsonTrainplanId = jsonHref.match(/trainplanId=([^&]*)/)[1];
-
-                // 正则提取 window.location.href 中  sectionId courseId trainplanId
-                let href = window.location.href;
-                let sectionId = href.match(/sectionId=([^&]*)/)[1];
-                let courseId = href.match(/courseId=([^&]*)/)[1];
-                let trainplanId = href.match(/trainplanId=([^&]*)/)[1];
-
-                if (jsonCourseId === courseId && jsonSectionId === sectionId && jsonTrainplanId === trainplanId) {
-                    courses.splice(i, 1);
-                }
-            }
+        if (typeof key === "number" && Number.isInteger(key)) {
+            courses.splice(key, 1);
         } else {
-            courses.splice(index, 1);
+            const target = this.#videoUrlSignature(String(key));
+            for (let i = courses.length - 1; i >= 0; i--) {
+                if (this.#videoUrlSignature(courses[i].url) !== target) {
+                    continue;
+                }
+                courses.splice(i, 1);
+            }
         }
 
         this.courses(courses);
+    }
+
+    /**
+     * 提取视频地址的参数签名，用于忽略多余参数（如 sectionName）后的匹配
+     * @param {string} url
+     * @returns {string}
+     */
+    static #videoUrlSignature(url) {
+        return ["platformId", "trainplanId", "courseId", "sectionId"]
+            .map(name => {
+                const match = url.match(new RegExp("[?&]" + name + "=([^&]*)"));
+                return match ? decodeURIComponent(match[1]) : "";
+            })
+            .join("|");
     }
 
     /**
@@ -702,7 +705,7 @@ class PlayPage {
             childBtn.className = "child_remove";
             childBtn.onclick = function () {
                 if (confirm("确定要删除这个视频任务么？")) {
-                    General.removeCourse(this.getAttribute("data"));
+                    General.removeCourse(Number(this.getAttribute("data")));
                 }
             };
             playlistBox.appendChild(childBtn);

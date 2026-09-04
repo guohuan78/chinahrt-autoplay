@@ -1,6 +1,6 @@
 {
     "name": "chinahrt-autoplay",
-    "version": "3.1.3-fix.2",
+    "version": "3.1.3-fix.3",
     "author": "guohuan78",
     "description": "基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题的继续教育刷课脚本",
     "repository": {
