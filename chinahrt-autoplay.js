@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.6
+// @version      3.1.3-fix.7
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/
@@ -44,7 +44,9 @@ class VueHandler {
         if (path === "/v_courseDetails") {
             return General.pageCategory.detail;
         }
-        // todo: 缺少play
+        if (path === "/v_video") {
+            return General.pageCategory.play;
+        }
         return General.pageCategory.other;
     }
 
@@ -56,14 +58,15 @@ class VueHandler {
             PlayPage.removeConfigBox();
             PlayPage.removePlaylistBox();
             PlayPage.removeFeedbackBox();
-            PlayPage.removeNoticeBox();
             experimentalHandler.removeExperimentalBox();
             DetailPage.removeCanPlaylist();
 
             if (to.path === "/v_courseDetails") {
+                DetailPage.createCanPlaylist();
                 DetailPage.appendToCanPlaylist(this.getCourses())
+            } else if (to.path === "/v_video") {
+                PlayPage.watchPlayer();
             }
-            // todo: 缺少播放页面
         });
     }
 
@@ -107,10 +110,10 @@ class BasicHandler {
      */
     static pageCategory() {
         const href = window.location.href;
-        if (href.indexOf("/course/play_video") > -1 || href.indexOf("/videoPlay/play") > -1) {
+        if (href.indexOf("/course/play_video") > -1 || href.indexOf("/videoPlay/play") > -1 || href.indexOf("#/v_video") > -1) {
             return General.pageCategory.play;
         }
-        if (href.indexOf("/course/preview") > -1) {
+        if (href.indexOf("/course/preview") > -1 || href.indexOf("#/v_courseDetails") > -1) {
             return General.pageCategory.detail;
         }
         return General.pageCategory.other;
@@ -476,6 +479,114 @@ class PlayPage {
     static #feedbackBoxId = "feedbackBox";
     // static #noticeBoxId = "noticeBox";
 
+    // 当前已初始化的播放器实例，用于识别 SPA 内播放器轮换
+    static lastPlayer = null;
+    static playerWatcher = null;
+    static periodicTimer = null;
+
+    /**
+     * 监视播放器实例，出现新实例（首次加载或 SPA 轮换）时重新初始化
+     */
+    static watchPlayer() {
+        if (PlayPage.playerWatcher) {
+            return;
+        }
+        PlayPage.playerWatcher = setInterval(function () {
+            try {
+                if (player && player !== PlayPage.lastPlayer) {
+                    PlayPage.lastPlayer = player;
+                    PlayPage.init();
+                }
+            } catch (error) {
+                // 播放器实例轮换期间可能尚未就绪，等待下一次轮询
+            }
+        }, 500);
+    }
+
+    /**
+     * 播放结束处理：移除已完成课程，提交学习记录后跳转下一节
+     */
+    static endHandler = function () {
+        let nextUrl = null;
+        try {
+            // 优先用播放器自身的 sectionId 匹配（与提交学习记录同源），URL 匹配兜底
+            const sectionId = typeof attrset !== "undefined" && attrset ? attrset.sectionId : undefined;
+            if (sectionId !== undefined && sectionId !== null && String(sectionId) !== "") {
+                General.removeCourseBySectionId(sectionId);
+            } else {
+                General.removeCourse(window.location.href);
+            }
+            const courses = General.courses();
+            if (courses.length === 0) {
+                General.notification("所有视频已经播放完毕");
+            } else {
+                nextUrl = courses[0].url;
+                General.notification("即将播放下一个视频:" + courses[0].title);
+            }
+        } catch (error) {
+            console.log("播放结束后处理列表异常", error);
+        }
+
+        if (!nextUrl) {
+            return;
+        }
+
+        let navigated = false;
+        const navigateOnce = function () {
+            if (!navigated) {
+                navigated = true;
+                window.top.location.href = nextUrl;
+            }
+        };
+
+        // 平台在下一节会校验上一节的完成状态：先提交学习记录再跳转
+        if (typeof $ === "function" && typeof attrset !== "undefined" && attrset) {
+            // 兜底：记录接口无论卡住还是报错，最多等 5 秒必须跳转
+            setTimeout(navigateOnce, 5000);
+            try {
+                if (typeof courseyunRecord === "function") {
+                    courseyunRecord();
+                }
+                if (player.videoClear) {
+                    player.videoClear();
+                }
+            } catch (error) {
+                console.log("播放结束清理异常", error);
+            }
+            try {
+                $.ajax({
+                    url: '/videoPlay/takeRecord',
+                    data: {
+                        studyCode: attrset.studyCode,
+                        recordUrl: attrset.recordUrl,
+                        updateRedisMap: attrset.updateRedisMap,
+                        recordId: attrset.recordId,
+                        sectionId: attrset.sectionId,
+                        signId: attrset.signId,
+                        isEnd: true,
+                        businessId: attrset.businessId,
+                    },
+                    dataType: 'json',
+                    type: 'post',
+                    success: function (data) {
+                        console.log("提交学习记录", data);
+                    },
+                    // complete 在成功和失败时都会触发，保证记录接口异常时也能继续播放下一个
+                    complete: navigateOnce,
+                });
+            } catch (error) {
+                console.log("提交学习记录异常", error);
+                navigateOnce();
+            }
+        } else {
+            navigateOnce();
+        }
+    };
+
+    static timeTickHandler = function (t) {
+        experimentalHandler.timeHandler(t);
+    };
+
     static #configContent = [
         {
             title: "自动播放",
@@ -627,68 +738,21 @@ class PlayPage {
         });
 
         PlayPage.playerInit();
+
+        // 事件去重注册：播放器实例轮换后 init 可能重复执行
+        try { player.removeListener('loadedmetadata', PlayPage.playerInit); } catch (error) { }
         player.addListener('loadedmetadata', PlayPage.playerInit);
 
         // 周期性重新检查播放状态，确保视频能自动播放
-        setInterval(PlayPage.playerInit, 1000);
+        if (!PlayPage.periodicTimer) {
+            PlayPage.periodicTimer = setInterval(PlayPage.playerInit, 1000);
+        }
 
-        // 播放结束
-        player.addListener('ended', function () {
-            // 优先用播放器自身的 sectionId 匹配（与提交学习记录同源），URL 匹配兜底
-            const sectionId = typeof attrset !== "undefined" && attrset ? attrset.sectionId : undefined;
-            if (sectionId !== undefined && sectionId !== null && String(sectionId) !== "") {
-                General.removeCourseBySectionId(sectionId);
-            } else {
-                General.removeCourse(window.location.href);
-            }
-            let courses = General.courses();
-            if (courses.length === 0) {
-                General.notification("所有视频已经播放完毕");
-                return;
-            }
-            General.notification("即将播放下一个视频:" + courses[0].title);
+        try { player.removeListener('ended', PlayPage.endHandler); } catch (error) { }
+        player.addListener('ended', PlayPage.endHandler);
 
-            const navigate = function () {
-                window.top.location.href = courses[0].url;
-            };
-
-            // 平台在下一节会校验上一节的完成状态：先提交学习记录再跳转
-            if (typeof $ !== "undefined" && typeof attrset !== "undefined" && attrset) {
-                try {
-                    if (typeof courseyunRecord === "function") {
-                        courseyunRecord();
-                    }
-                    if (player.videoClear) {
-                        player.videoClear();
-                    }
-                } catch (e) {
-                    console.log("播放结束清理异常", e);
-                }
-                $.ajax({
-                    url: '/videoPlay/takeRecord',
-                    data: {
-                        studyCode: attrset.studyCode,
-                        recordUrl: attrset.recordUrl,
-                        updateRedisMap: attrset.updateRedisMap,
-                        recordId: attrset.recordId,
-                        sectionId: attrset.sectionId,
-                        signId: attrset.signId,
-                        isEnd: true,
-                        businessId: attrset.businessId,
-                    },
-                    dataType: 'json',
-                    type: 'post',
-                    // complete 在成功和失败时都会触发，保证即使记录提交失败也能继续播放下一个
-                    complete: navigate,
-                });
-            } else {
-                navigate();
-            }
-        });
-
-        player.addListener('time', function (t) {
-            experimentalHandler.timeHandler(t);
-        });
+        try { player.removeListener('time', PlayPage.timeTickHandler); } catch (error) { }
+        player.addListener('time', PlayPage.timeTickHandler);
     }
 
     /**
@@ -1156,25 +1220,27 @@ window.onload = function () {
             console.log("当前模式：JQuery", window.location.href);
         }
 
-        const pageCategory = inVue ? VueHandler.pageCategory() : BasicHandler.pageCategory();
+        let pageCategory = inVue ? VueHandler.pageCategory() : BasicHandler.pageCategory();
+        if (pageCategory === General.pageCategory.other) {
+            // Vue 实例尚未就绪时按地址特征兜底识别页面类型
+            pageCategory = BasicHandler.pageCategory();
+        }
 
         if (pageCategory === General.pageCategory.play || General.pageCategory.detail === pageCategory) {
             // 添加Css样式
             GM_addStyle(".canPlaylist{width:300px;height:500px;position:fixed;top:100px;background:#fff;right:20px;border:1px solid #c1c1c1}.canPlaylist .item{padding:8px;line-height:150%;border-bottom:1px solid #c1c1c1;margin-bottom:3px}.canPlaylist .item .title{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c1c1c1}.canPlaylist .item .addBtn{color:#fff;background-color:#4bccf2;border:0;padding:5px 10px;margin-top:4px}.canPlaylist .item .addBtn.disable{color:#000;background-color:#c3c3c3}.configBox{right:0;top:0;height:280px}.configBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.configBox .item{border-bottom:1px dotted #ccc;padding-bottom:5px}.configBox .item .remark{font-size:13px;font-weight:700}.configBox,.experimentalBox,.playlistBox{position:fixed;width:250px;background-color:#fff;z-index:9999;border:1px solid #ccc}.playlistBox{right:0;top:290px;height:450px;overflow-y:auto}.playlistBox .title{border-bottom:1px solid #ccc;padding:5px;font-weight:700}.playlistBox .child_title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.playlistBox .child_remove{color:#fff;background-color:#fd1952;border:0;padding:5px 10px;margin:4px 0 10px}.experimentalBox{right:255px;top:0;height:280px}.experimentalBox .tip{border-bottom:1px solid #ccc;padding:5px;font-weight:700;color:red}.feedbackBox,.notice{font-size:14px;font-weight:700;color:red;background:#fff;position:absolute;line-height:30px;z-index:99999;left:30px}.feedbackBox{padding:4px 7px;top:0;display:flex;flex-direction:column;text-align:center}.feedbackBox .title{font-size:16px;border-bottom:1px solid red}.feedbackBox .link{font-size:18px;padding:8px 0 8px 10px;color:#4bccf2}.notice{bottom:10px}.canPlaylist .oneClick{margin:0 auto;width:100%;border:none;padding:6px 0;background:linear-gradient(180deg,#4BCE31,#4bccf2);height:50px;border-radius:5px;color:#fff;font-weight:700;letter-spacing:4px;font-size:18px;cursor:pointer}.playlistBox .oneClear{width:100%;border:none;padding:6px 0;background:linear-gradient(180deg,#4BCE31,#4bccf2);height:50px;border-radius:5px;color:#fff;font-weight:700;letter-spacing:4px;font-size:18px;cursor:pointer;margin-bottom:5px}");
 
             if (pageCategory === General.pageCategory.play) {
-                let playTimer = setInterval(function () {
-                    try {
-                        console.log(player)
-                        if (player) {
-                            PlayPage.init();
-                            clearInterval(playTimer);
+                PlayPage.watchPlayer();
+                if (inVue) {
+                    // SPA 内路由切换依赖 afterEach 处理，等 Vue 实例就绪后注册
+                    let vueReadyTimer = setInterval(function () {
+                        if (VueHandler.getInstance()) {
+                            VueHandler.registerRouterChange();
+                            clearInterval(vueReadyTimer);
                         }
-                    } catch (error) {
-                        console.log(error)
-                        console.log("未获取到播放器");
-                    }
-                }, 500);
+                    }, 500);
+                }
             } else if (pageCategory === General.pageCategory.detail) {
                 // 创建课播放列表窗口
                 DetailPage.createCanPlaylist();
