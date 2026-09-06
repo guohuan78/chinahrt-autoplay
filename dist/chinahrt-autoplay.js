@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      4.0.1
+// @version      4.0.2
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
-// @description  Chinahrt 继续教育自动刷课：视频自动播放、自动提交学习记录、自动连播下一节；支持倍速、拖动解锁、静音与播放列表管理
+// @description  Chinahrt 继续教育自动播放：确认学习记录保存后连播下一节，支持静音、播放列表管理和进度保存诊断
 // @author       guohuan78
-// 基于原作改编：yikuaibaiban/chinahrt-autoplay（Apache-2.0）
 // @license      Apache-2.0
+// 基于原作改编：yikuaibaiban/chinahrt-autoplay（Apache-2.0）
 // @icon         data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAArFJREFUWEftlttPE0EUxr+9ddtdYOXSSmmlFFoasSFemmg0qYkIMfGF/9J/wTeN0cSYGBHEBBIoLSIU0VrKpe1eagaySWVmutu+GJPO4+5cfvOdc745wkGl3sI/HEIf4L9ToHrqoHLi4LTRgmm1IAhAMCDgmi4ibEgQhe4SyncOFA9tFMoWaucO9wRJFDAZlpCeUKAq/kA8AY7PHKwWmqic+i8WRRaQTciIj8qeFB0Bjo4dvN9ooOX/7L8OnLshYybaWQouALn5m/XeD3dJ5qcCSEQkrhJcgLfrdabshV8mvtdsPEoEPeV1JzzOqhjSROZ8JsBO2cJa0WQueLFSQ6lqYWpYQT4ZQnSQfzt3g+iwhFw64B/g9VqDm+0uANlNkYB8UkMupnqqkc+qMBgqUAqQOiex5412AHdOJhzAUlqDpvBNIBOXMTtBJyQF0El+ciALgHwfUEUspjTMjrGzPmKIuJ+hlaIA1ksmtg+srhRon7wwE0IuTieoHhTwZJ7+TgGsbDexe2T3DJAdV/E8o1HriTMu3QlR3ymAz4UmSj96A1AkActzOqZH6DD4BtjYM7G5130IYkMynmV0jHHqfXRQxMObPnKg/NvGh81mVyG4HQ1gcVYH22out5oel3Fr0kcVOC3g5cdz2JxH72oVPE1ruDfh7QMPMirCBo3IdMIvRfPi6WUNF2BMl0Aynjii1yAGRIyINZgADRN4tVa/aDiujnfFOg5PbCykNAyp/roPYsPEjn0DkInfflr4tMV+D7xu3P4/eV1GNsFXqWM/sLVv4usuvyK8QGIjEu6m2I+Qu9azIyKt2OoOvyp4EF439w1AJpLmhHjDfoVvUO6GJOHSMZkb86vAngq0L6ieOSA+UalddsWWfZmkA0ERhi4iYkjMUusUqq4AvGLey/8+QF+BP0npcPDdfTv7AAAAAElFTkSuQmCC
 // @match        http://*.chinahrt.com/*
 // @match        https://*.chinahrt.com/*
@@ -18,6 +18,22 @@
 // @grant        GM_addValueChangeListener
 // @grant        GM_notification
 // ==/UserScript==
+
+const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+const runtimeVersion = '4.0.2';
+const completionMessage = 'chinahrt-autoplay:record-saved';
+const completedSections = new Set();
+const recordNormalizers = new WeakSet();
+let recordFailure = null;
+
+function runtimeStage(stage, sectionId) {
+    const root = document.documentElement;
+    if (!root) return;
+    // 现场诊断只记录版本、阶段和小节 ID。
+    root.setAttribute('data-chinahrt-autoplay-version', runtimeVersion);
+    root.setAttribute('data-chinahrt-autoplay-stage', stage);
+    if (sectionId) root.setAttribute('data-chinahrt-autoplay-section', sectionId);
+}
 
 (function initStyles() {
     let style = document.createElement("style");
@@ -44,8 +60,8 @@ function mute(value) {
 }
 
 function drag(value) {
-    if (attrset !== undefined) {
-        attrset.ifCanDrag = 1;
+    if (pageWindow.attrset) {
+        pageWindow.attrset.ifCanDrag = 1;
     }
 
     if (value) {
@@ -57,8 +73,8 @@ function drag(value) {
 }
 
 function speed(value) {
-    if (attrset !== undefined) {
-        attrset.playbackRate = 1;
+    if (pageWindow.attrset) {
+        pageWindow.attrset.playbackRate = 1;
     }
 
     if (value) {
@@ -89,10 +105,12 @@ function addCourse(course) {
 }
 
 function removeCourse(sectionId) {
+    const id = normalizeSectionId(sectionId);
+    if (!id) return;
     let courses = coursesList();
 
     for (let i = courses.length - 1; i >= 0; i--) {
-        if (String(courses[i].sectionId) !== String(sectionId)) {
+        if (normalizeSectionId(courses[i].sectionId) !== id) {
             continue;
         }
         courses.splice(i, 1);
@@ -102,9 +120,11 @@ function removeCourse(sectionId) {
 }
 
 function courseAdded(sectionId) {
+    const id = normalizeSectionId(sectionId);
+    if (!id) return false;
     let courses = coursesList();
     for (let i = 0; i < courses.length; i++) {
-        if (String(courses[i].sectionId) === String(sectionId)) {
+        if (normalizeSectionId(courses[i].sectionId) === id) {
             return true;
         }
     }
@@ -126,7 +146,9 @@ function coursesList(value) {
     }
 
     // 兼容不同版本的存储格式：补齐 title / sectionName / sectionId 字段
-    let migrated = false;
+    const validCourses = courses.filter(course => course && typeof course === 'object');
+    let migrated = validCourses.length !== courses.length;
+    courses = validCourses;
     for (let i = 0; i < courses.length; i++) {
         const course = courses[i];
         if (!course) {
@@ -141,9 +163,9 @@ function coursesList(value) {
             migrated = true;
         }
         if (!course.sectionId && course.url) {
-            const match = course.url.match(/[?&]sectionId=([^&]*)/);
-            if (match) {
-                course.sectionId = decodeURIComponent(match[1]);
+            const id = sectionIdFromUrl(course.url);
+            if (id) {
+                course.sectionId = id;
                 migrated = true;
             }
         }
@@ -154,32 +176,273 @@ function coursesList(value) {
 
     return courses;
 }
-function interceptFetch(callback) {
-    const originalFetch = window.fetch;
-    window.fetch = function (url, options) {
-        const result = originalFetch(url, options);
-        result.then(res => {
-            callback(url, res, options);
-        });
-        return result;
+function normalizeSectionId(value) {
+    return value === undefined || value === null ? '' : String(value).trim();
+}
+
+function sectionIdFromUrl(value) {
+    try {
+        const url = new URL(value, window.location.href);
+        const query = url.hash.includes('?') ? url.hash.slice(url.hash.indexOf('?') + 1) : '';
+        return normalizeSectionId(new URLSearchParams(query).get('sectionId') || url.searchParams.get('sectionId'));
+    } catch (error) {
+        return '';
     }
 }
 
+function isRecordUrl(value) {
+    try {
+        const url = new URL(value, window.location.href);
+        return url.origin === window.location.origin && /^\/videoPlay\/takeRecord(?:ByToken)?\/?$/.test(url.pathname);
+    } catch (error) {
+        return false;
+    }
+}
+
+function playbackContext() {
+    const attributes = pageWindow.attrset || {};
+    return {
+        href: window.location.href,
+        sectionId: normalizeSectionId(attributes.sectionId) || sectionIdFromUrl(window.location.href),
+        token: attributes.signId,
+    };
+}
+
+function studyRecord(url, method, body, context) {
+    if (String(method).toUpperCase() !== 'POST' || !isRecordUrl(url)) return null;
+    try {
+        let data;
+        if (typeof body === 'string') {
+            data = body.trim().startsWith('{') ? JSON.parse(body) : Object.fromEntries(new URLSearchParams(body));
+        } else if (body && typeof body.entries === 'function') {
+            data = Object.fromEntries(body.entries());
+        } else {
+            return null;
+        }
+        if (!data || typeof data !== 'object') return null;
+        if (data.token !== undefined && String(data.token) !== String(context.token)) return null;
+        const sectionId = normalizeSectionId(data.sectionId) || context.sectionId;
+        if (!sectionId || (context.sectionId && sectionId !== context.sectionId)) return null;
+        // 请求发送时固定小节身份，异步响应不会移除后来切换到的小节。
+        return { sectionId, href: context.href, isEnd: data.isEnd === true || data.isEnd === 'true' };
+    } catch (error) {
+        return null;
+    }
+}
+
+function meaningfulMessage(value) {
+    return typeof value === 'string' && value.trim() && !/^(undefined|null)$/i.test(value.trim());
+}
+
+function recordErrorMessage(data) {
+    if (data && typeof data === 'object') {
+        for (const value of [data.error_desc, data.message, data.msg]) {
+            if (meaningfulMessage(value)) return value.trim();
+        }
+    }
+    const status = data && data.status !== undefined ? String(data.status) : '未知';
+    return '学习进度保存失败（平台状态码：' + status + '）。平台未提供错误说明，请刷新当前课程后重试。';
+}
+
+function recordErrorDiagnostic(record, httpStatus, data) {
+    if (!record || record.href !== window.location.href) return;
+    const currentId = playbackContext().sectionId;
+    if (currentId && currentId !== record.sectionId) return;
+    recordFailure = record;
+    runtimeStage('record-failed', record.sectionId);
+    // 只选取错误字段，不记录请求体、签名或响应中的 data。
+    document.documentElement.setAttribute('data-chinahrt-record-error', JSON.stringify({
+        kind: record.isEnd ? 'end' : 'progress',
+        httpStatus: httpStatus || null,
+        status: data && data.status !== undefined ? String(data.status).slice(0, 40) : null,
+        errorDescriptionMissing: !meaningfulMessage(data && data.error_desc),
+        message: recordErrorMessage(data).slice(0, 300),
+    }));
+}
+
+function installRecordErrorMessages() {
+    const jquery = pageWindow.jQuery || pageWindow.$;
+    if (!jquery || typeof jquery.ajaxPrefilter !== 'function' || recordNormalizers.has(jquery)) return;
+    jquery.ajaxPrefilter(function (options, originalOptions, xhr) {
+        const record = studyRecord(options.url, options.type || 'GET', options.data, playbackContext());
+        if (!record) return;
+        const originalFilter = options.dataFilter;
+        options.dataFilter = function (response, type) {
+            const filtered = typeof originalFilter === 'function' ? originalFilter.call(this, response, type) : response;
+            let data;
+            try {
+                data = typeof filtered === 'string' ? JSON.parse(filtered) : filtered;
+            } catch (error) {
+                return filtered;
+            }
+            if (!data || typeof data !== 'object' || data.status == null || String(data.status) === '0') return filtered;
+            // 在原生 success 弹窗前记录诊断；失败状态仍由平台处理。
+            recordErrorDiagnostic(record, xhr && xhr.status, data);
+            if (meaningfulMessage(data.error_desc)) return filtered;
+            const normalized = { ...data, error_desc: recordErrorMessage(data) };
+            return typeof filtered === 'string' ? JSON.stringify(normalized) : normalized;
+        };
+    });
+    recordNormalizers.add(jquery);
+    document.documentElement.setAttribute('data-chinahrt-record-messages', 'ready');
+}
+
+function recordSaved(record, status, response) {
+    if (!record || record.href !== window.location.href) return;
+    const currentId = playbackContext().sectionId;
+    if (currentId && currentId !== record.sectionId) return;
+    let data = response;
+    try {
+        if (typeof data === 'string') data = JSON.parse(data);
+    } catch (error) {
+        data = null;
+    }
+    if (status < 200 || status >= 300 || !data || String(data.status) !== '0') {
+        recordErrorDiagnostic(record, status, data);
+        if (record.isEnd) notification(recordErrorMessage(data));
+        return;
+    }
+    recordFailure = null;
+    if (!record.isEnd) {
+        runtimeStage('progress-saved', record.sectionId);
+        return;
+    }
+    if (completedSections.has(record.sectionId)) return;
+    runtimeStage('record-saved', record.sectionId);
+    if (window.top === window.self) {
+        finishCourse(record.sectionId);
+        return;
+    }
+    // 跨域播放器只报告已保存的小节，由课程主页面修改队列并导航。
+    try {
+        const parentOrigin = new URL(document.referrer).origin;
+        window.top.postMessage({ type: completionMessage, sectionId: record.sectionId }, parentOrigin);
+        completedSections.add(record.sectionId);
+        runtimeStage('notified-parent', record.sectionId);
+    } catch (error) {
+        notification('学习进度已保存，请在课程主页面刷新脚本后继续播放。');
+    }
+}
+
+function finishCourse(sectionId) {
+    const id = normalizeSectionId(sectionId);
+    if (!id || completedSections.has(id)) return;
+    // 队列保存待播放项；当前视频可能已被移除，仍应播放剩余的第一项。
+    removeCourse(id);
+    completedSections.add(id);
+    const courses = coursesList();
+    if (!courses.length) {
+        runtimeStage('queue-empty', id);
+        notification('所有视频已经播放完毕');
+        return;
+    }
+    let nextUrl;
+    try {
+        nextUrl = new URL(courses[0].url);
+        nextUrl.pathname = nextUrl.pathname.replace(/^\/{2,}/, '/');
+        if (!/^https?:$/.test(nextUrl.protocol) || !/\.(chinahrt\.com(?:\.cn)?|heb12333\.cn)$/.test(nextUrl.hostname)) {
+            throw new Error('Invalid course URL');
+        }
+    } catch (error) {
+        runtimeStage('next-url-invalid', id);
+        notification('下一个视频的播放地址无效，请在课程详情页重新添加。');
+        return;
+    }
+    notification('即将播放下一个视频:' + (courses[0].sectionName || courses[0].title || '下一节'));
+    runtimeStage('navigating', id);
+    window.location.href = nextUrl.href;
+}
+
+function handleCompletionMessage(event) {
+    if (window.top !== window.self || currentPageType() !== 2) return;
+    const data = event.data;
+    if (!data || data.type !== completionMessage || typeof data.sectionId !== 'string') return;
+    if (data.sectionId !== sectionIdFromUrl(window.location.href)) return;
+    const trustedFrame = Array.from(document.querySelectorAll('iframe')).some(frame => {
+        try {
+            const url = new URL(frame.src, window.location.href);
+            return frame.contentWindow === event.source && url.origin === event.origin &&
+                /^https?:$/.test(url.protocol) && /\.(chinahrt\.com(?:\.cn)?|heb12333\.cn)$/.test(url.hostname) &&
+                /^\/videoPlay\/play(?:Encrypt)?\/?$/.test(url.pathname);
+        } catch (error) {
+            return false;
+        }
+    });
+    if (trustedFrame) {
+        runtimeStage('completion-received', data.sectionId);
+        finishCourse(data.sectionId);
+    }
+}
+
+function interceptFetch() {
+    const originalFetch = pageWindow.fetch;
+    if (typeof originalFetch !== 'function') return;
+    pageWindow.fetch = function (input, options) {
+        const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+        const context = playbackContext();
+        const method = (options && options.method) || input.method || 'GET';
+        const isRecord = isRecordUrl(url) && String(method).toUpperCase() === 'POST';
+        let body;
+        if (isRecord) {
+            body = options && options.body !== undefined ? Promise.resolve(options.body) :
+                (typeof input.clone === 'function' ? input.clone().text() : Promise.resolve(undefined));
+            body.catch(() => {});
+        }
+        const result = originalFetch.apply(this, arguments);
+        if (isRecord) {
+            result.then(response => {
+                // 在平台读取原始响应前建立副本，请求体解析可以异步完成。
+                const copy = response.clone();
+                return body.then(value => {
+                    const record = studyRecord(url, method, value, context);
+                    if (!record) return;
+                    return copy.text().then(text => recordSaved(record, response.status, text));
+                });
+            }).catch(() => {});
+        }
+        return result;
+    };
+}
+
 function interceptsXHR(callback) {
-    const open = window.XMLHttpRequest.prototype.open;
-    window.XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
-        this.addEventListener('readystatechange', function () {
-            callback(url, this.response, method, this.readyState);
-        });
-        open.apply(this, arguments);
+    if (!pageWindow.XMLHttpRequest) return;
+    const prototype = pageWindow.XMLHttpRequest.prototype;
+    const open = prototype.open;
+    const send = prototype.send;
+    const requests = new WeakMap();
+    prototype.open = function (method, url) {
+        requests.set(this, { method, url: String(url) });
+        return open.apply(this, arguments);
+    };
+    prototype.send = function (body) {
+        const request = requests.get(this);
+        if (request) {
+            const record = studyRecord(request.url, request.method, body, playbackContext());
+            if (record && record.isEnd) runtimeStage('waiting-record', record.sectionId);
+            this.addEventListener('loadend', function () {
+                try {
+                    recordSaved(record, this.status, this.response);
+                    if (this.status >= 200 && this.status < 300) {
+                        callback(request.url, this.response, request.method, this.readyState);
+                    }
+                } catch (error) {
+                    console.warn('[Chinahrt] 处理课程响应失败', error.name);
+                }
+            }, { once: true });
+        }
+        return send.apply(this, arguments);
     };
 }
 function notification(content) {
+    try {
     GM_notification({
         text: content,
         title: "Chinahrt自动刷课",
         image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAArFJREFUWEftlttPE0EUxr+9ddtdYOXSSmmlFFoasSFemmg0qYkIMfGF/9J/wTeN0cSYGBHEBBIoLSIU0VrKpe1eagaySWVmutu+GJPO4+5cfvOdc745wkGl3sI/HEIf4L9ToHrqoHLi4LTRgmm1IAhAMCDgmi4ibEgQhe4SyncOFA9tFMoWaucO9wRJFDAZlpCeUKAq/kA8AY7PHKwWmqic+i8WRRaQTciIj8qeFB0Bjo4dvN9ooOX/7L8OnLshYybaWQouALn5m/XeD3dJ5qcCSEQkrhJcgLfrdabshV8mvtdsPEoEPeV1JzzOqhjSROZ8JsBO2cJa0WQueLFSQ6lqYWpYQT4ZQnSQfzt3g+iwhFw64B/g9VqDm+0uANlNkYB8UkMupnqqkc+qMBgqUAqQOiex5412AHdOJhzAUlqDpvBNIBOXMTtBJyQF0El+ciALgHwfUEUspjTMjrGzPmKIuJ+hlaIA1ksmtg+srhRon7wwE0IuTieoHhTwZJ7+TgGsbDexe2T3DJAdV/E8o1HriTMu3QlR3ymAz4UmSj96A1AkActzOqZH6DD4BtjYM7G5130IYkMynmV0jHHqfXRQxMObPnKg/NvGh81mVyG4HQ1gcVYH22out5oel3Fr0kcVOC3g5cdz2JxH72oVPE1ruDfh7QMPMirCBo3IdMIvRfPi6WUNF2BMl0Aynjii1yAGRIyINZgADRN4tVa/aDiujnfFOg5PbCykNAyp/roPYsPEjn0DkInfflr4tMV+D7xu3P4/eV1GNsFXqWM/sLVv4usuvyK8QGIjEu6m2I+Qu9azIyKt2OoOvyp4EF439w1AJpLmhHjDfoVvUO6GJOHSMZkb86vAngq0L6ieOSA+UalddsWWfZmkA0ERhi4iYkjMUusUqq4AvGLey/8+QF+BP0npcPDdfTv7AAAAAElFTkSuQmCC",
     });
+    } catch (error) {
+        console.info('[Chinahrt]', content);
+    }
 }
 
 function currentPageType() {
@@ -188,8 +451,11 @@ function currentPageType() {
     // SPA 内的播放页（hash 路由）同样启用自动播放
     if (window.location.href.indexOf("#/v_video?") > -1) return 2;
 
-    const currentPage = RegExp(/#\/(.+)\?/).exec(window.location.href)[1];
+    const route = /#\/([^?]+)/.exec(window.location.href);
+    const currentPage = route ? route[1] : '';
     switch (currentPage) {
+        case "v_video":
+            return 2;
         case "v_courseDetails":
             return 1;
         default:
@@ -372,6 +638,8 @@ function createMultiSegmentBox() {
 }
 
 function timeHandler(t) {
+    const player = pageWindow.player;
+    if (!player || typeof player.getMetaDate !== 'function') return;
     let videoDuration = parseInt(player.getMetaDate().duration);
     if (playMode() === 1) {
         if (videoDuration <= 270) {
@@ -478,140 +746,76 @@ function createControllerBox() {
 	return controllerBox;
 }
 
-function playerInit() {
-	if (player.V.ended || (!player.V.ended && !player.V.paused)) {
-		return;
-	}
-
-	player.changeControlBarShow(true);
-	player.changeConfig('config', 'timeScheduleAdjust', drag());
-	if (mute()) {
-		player.videoMute();
-	} else {
-		player.videoEscMute();
-	}
-	player.changePlaybackRate(speed());
-	if (autoPlay()) {
-		player.videoPlay();
-	}
-
-	player.removeListener('ended', endedHandler);
-	player.addListener('ended', function (event) {
-		courseyunRecord();
-		player.videoClear();
-
-		// 兜底：学习记录接口卡住或报错时，最多等 5 秒也要跳转下一节
-		let navigated = false;
-		let nextUrl = null;
-		const navigateOnce = function () {
-			if (navigated || !nextUrl) {
-				return;
-			}
-			navigated = true;
-			window.top.location.href = nextUrl;
-		};
-		setTimeout(navigateOnce, 5000);
-
-		$.ajax({
-			url: '/videoPlay/takeRecord',
-			data: {
-				studyCode: attrset.studyCode,
-				recordUrl: attrset.recordUrl,
-				updateRedisMap: attrset.updateRedisMap,
-				recordId: attrset.recordId,
-				sectionId: attrset.sectionId,
-				signId: attrset.signId,
-				isEnd: true,
-				businessId: attrset.businessId,
-			},
-			dataType: 'json',
-			type: 'post',
-			success: function (data) {
-				console.log('提交学习记录', data);
-				removeCourse(attrset.sectionId);
-				let courses = coursesList();
-				if (courses.length === 0) {
-					notification('所有视频已经播放完毕');
-				} else {
-					nextUrl = courses[0].url;
-					notification('即将播放下一个视频:' + courses[0].sectionName);
-					navigateOnce();
-				}
-			},
-		});
-	});
-
-	player.addListener('time', timeHandler);
-}
-
+const initializedPlayers = new WeakSet();
 let playInited = false;
 
-function playInit() {
-	removePauseBlur();
-	// SPA 内路由可能反复进入播放页，先清旧面板再重建，避免堆积
-	removePlaylistBox();
-	removeControllerBox();
-	removeMultiSegmentBox();
-	createPlaylistBox();
-	createControllerBox();
-	createMultiSegmentBox();
-
-	if (playInited) {
-		// 播放器事件与轮询只需注册一次
-		return;
-	}
-	playInited = true;
-
-	GM_addValueChangeListener(
-		'courses',
-		function (name, oldValue, newValue, remote) {
-			removePlaylistBox();
-			createPlaylistBox();
-		}
-	);
-
-	let checkPlayerTimer = setInterval(function () {
-		if (typeof player === "undefined" || !player) return;
-		clearInterval(checkPlayerTimer);
-		setTimeout(function () {
-			GM_addValueChangeListener(
-				'autoPlay',
-				function (name, oldValue, newValue, remote) {
-					if (newValue) {
-						player.videoPlay();
-					}
-				}
-			);
-			GM_addValueChangeListener(
-				'mute',
-				function (name, oldValue, newValue, remote) {
-					if (newValue) {
-						player.videoMute();
-					} else {
-						player.videoEscMute();
-					}
-				}
-			);
-			GM_addValueChangeListener(
-				'drag',
-				function (name, oldValue, newValue, remote) {
-					player.changeConfig('config', 'timeScheduleAdjust', newValue);
-				}
-			);
-			GM_addValueChangeListener(
-				'speed',
-				function (name, oldValue, newValue, remote) {
-					player.changePlaybackRate(newValue);
-				}
-			);
-
-			playerInit();
-
-			setInterval(playerInit, 1000);
-		}, 1000);
-	}, 500);
+function playerInit() {
+    if (currentPageType() !== 2) return;
+    installRecordErrorMessages();
+    if (recordFailure && recordFailure.href === window.location.href &&
+        recordFailure.sectionId === playbackContext().sectionId) return;
+    const player = pageWindow.player;
+    if (!player || !player.V) return;
+    try {
+        if (!initializedPlayers.has(player)) {
+            if (typeof pageWindow.removePauseBlur === 'function') pageWindow.removePauseBlur();
+            // 平台原生 endedHandler 负责提交结束记录，脚本监听该请求的保存结果。
+            player.addListener('time', function (time) {
+                if (pageWindow.player === player) timeHandler(time);
+            });
+            initializedPlayers.add(player);
+        }
+        if (!document.getElementById('controllerBox')) {
+            createPlaylistBox();
+            createControllerBox();
+            createMultiSegmentBox();
+        }
+        if (player.V.ended || !player.V.paused) return;
+        player.changeControlBarShow(true);
+        player.changeConfig('config', 'timeScheduleAdjust', drag());
+        if (mute()) player.videoMute();
+        else player.videoEscMute();
+        player.changePlaybackRate(speed());
+        if (autoPlay()) player.videoPlay();
+    } catch (error) {
+        // 播放器与媒体异步就绪，下一轮使用当前实例重试。
+    }
 }
 
+function playInit() {
+    if (playInited) return;
+    playInited = true;
+    GM_addValueChangeListener('courses', function () {
+        if (document.getElementById('playlistBox')) {
+            removePlaylistBox();
+            createPlaylistBox();
+        }
+    });
+    GM_addValueChangeListener('autoPlay', function () {
+        playerInit();
+    });
+    for (const option of ['mute', 'drag', 'speed']) {
+        GM_addValueChangeListener(option, function (name, oldValue, newValue) {
+            const player = pageWindow.player;
+            if (!player || !player.V || currentPageType() !== 2) return;
+            try {
+                if (name === 'mute') {
+                    if (newValue) player.videoMute();
+                    else player.videoEscMute();
+                } else if (name === 'drag') {
+                    player.changeConfig('config', 'timeScheduleAdjust', newValue);
+                } else {
+                    player.changePlaybackRate(newValue);
+                }
+            } catch (error) {
+                // 媒体切换期间由 playerInit 重试当前配置。
+            }
+        });
+    }
+    // 先安装轮询，首次初始化异常也不会中断后续自动播放。
+    setInterval(playerInit, 1000);
+    playerInit();
+}
 function createPlaylistBox() {
     let playlistBox = document.createElement("div");
     playlistBox.id = "playlistBox";
@@ -728,7 +932,7 @@ function interceptsXHRCallback(url, response, method, readyState) {
         canPlaylist.dispatchEvent(new CustomEvent("clear", {}));
         tempCourses = [];
 
-        const data = JSON.parse(response);
+        const data = typeof response === 'string' ? JSON.parse(response) : response;
         data.data.course.chapter_list.forEach((chapter) => {
             chapter.section_list.forEach((section) => {
                 const courseDetail = new CourseDetail();
@@ -747,30 +951,40 @@ function interceptsXHRCallback(url, response, method, readyState) {
     }
 }
 
-function interceptFetchCallback(url, response, options) {
-    response.json().then(data => {
-    });
-}
-
 function initRouter() {
+    const canonicalUrl = new URL(window.location.href);
+    if (window.top === window.self && currentPageType() === 2 && /^\/{2,}index\.html$/.test(canonicalUrl.pathname)) {
+        canonicalUrl.pathname = '/index.html';
+        runtimeStage('canonicalizing-url');
+        window.location.replace(canonicalUrl.href);
+        return;
+    }
+    window.addEventListener('message', handleCompletionMessage);
     interceptsXHR(interceptsXHRCallback);
-    interceptFetch(interceptFetchCallback);
+    interceptFetch();
+    installRecordErrorMessages();
+    runtimeStage('ready');
 
-    if (currentPageType() === 1) {
-        GM_addValueChangeListener("courses", function (name, oldValue, newValue, remote) {
+    GM_addValueChangeListener("courses", function (name, oldValue, newValue, remote) {
             const element = document.getElementById("canPlaylist");
             if (element) {
                 element.dispatchEvent(new CustomEvent("refresh", {}));
             }
-        });
-    } else if (currentPageType() === 2) {
+    });
+    if (currentPageType() === 2) {
         playInit();
     }
 
     // SPA 内 hash 切换不触发页面重载，路由进入播放页时兜底启动播放逻辑
     window.addEventListener("hashchange", function () {
+        completedSections.clear();
         if (currentPageType() === 2) {
             playInit();
+            playerInit();
+        } else {
+            removePlaylistBox();
+            removeControllerBox();
+            removeMultiSegmentBox();
         }
     });
 }
@@ -790,6 +1004,6 @@ class CourseDetail {
 }
 
 
-(async function () {
+(function () {
     initRouter()
 })();
