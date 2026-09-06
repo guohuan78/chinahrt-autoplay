@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Chinahrt 自动刷课
-// @version      3.1.3-fix.8
+// @version      4.0.0
 // @namespace    https://github.com/guohuan78/chinahrt-autoplay
 // @description  Chinahrt 继续教育自动刷课脚本，基于 yikuaibaiban/chinahrt-autoplay 修复自动播放问题。使用教程：https://yikuaibaiban.github.io/chinahrt-autoplay-docs/
 // @author       yikuaibaiban(原作);guohuan78(修复维护);https://www.cnblogs.com/ykbb/

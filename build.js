@@ -1,7 +1,7 @@
 const fs = require("fs");
 const uglifyjs = require("uglify-js");
 
-// 根目录 chinahrt-autoplay.js 是唯一事实源（src/ 为旧版函数式代码，仅作参考保留）
+// 根目录 chinahrt-autoplay.js 是唯一事实源
 const source = fs.readFileSync("./chinahrt-autoplay.js", "utf8");
 
 if (!fs.existsSync("./dist")) fs.mkdirSync("./dist");
