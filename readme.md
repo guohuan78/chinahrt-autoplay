@@ -22,7 +22,7 @@ Chinahrt 继续教育自动播放脚本：把课程加入播放列表后自动�
 
 1. 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/) 扩展
 2. 安装脚本，任选其一：
-   - GreasyFork 安装页：（发布后补链接）
+   - [GreasyFork 安装页](https://greasyfork.org/zh-CN/scripts/594574-chinahrt-自动刷课)
    - 下载本仓库的 [`dist/chinahrt-autoplay.user.js`](dist/chinahrt-autoplay.user.js)，拖入 Tampermonkey 图标上按提示安装
    - 在 Tampermonkey 中新建脚本，粘贴根目录 [`chinahrt-autoplay.js`](chinahrt-autoplay.js) 全文保存
 
