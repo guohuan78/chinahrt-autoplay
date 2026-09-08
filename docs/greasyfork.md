@@ -47,8 +47,8 @@ Chinahrt 继续教育自动播放脚本：把课程加入播放列表后自动�
 
 ## 反馈
 
-- 问题反馈：https://github.com/guohuan78/chinahrt-autoplay/issues
-- 源码仓库：https://github.com/guohuan78/chinahrt-autoplay
+- 问题反馈：[github.com/guohuan78/chinahrt-autoplay/issues](https://github.com/guohuan78/chinahrt-autoplay/issues)
+- 源码仓库：[github.com/guohuan78/chinahrt-autoplay](https://github.com/guohuan78/chinahrt-autoplay)
 
 ## 免责声明
 
